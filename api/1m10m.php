@@ -4,6 +4,11 @@ header('Content-Type: application/json');
 // Set timezone to UTC to align with Discord timestamps
 date_default_timezone_set('UTC');
 
+$discordtoken = getenv('DISCORD_TOKEN') ?: '';
+if (empty($discordtoken)) {
+        return ['error' => true, 'httpCode' => 500, 'message' => 'discord token not configured'];
+}
+
 // Configuration for multiple channels
 $channels = [
     [
@@ -18,7 +23,7 @@ $channels = [
 
 // Common headers for Discord API
 $discordHeaders = [
-    "Authorization: MTM0OTk4Njk1NzAyMjk5MDM1Mw.G63eML.GZTBdj2PJEgW6CmocmWTSqVW-YGE6h04uBI3Ls", // Add your Discord token here
+    "Authorization": $discordtoken, // Add your Discord token here
     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Accept: */*",
     "Referer: https://discord.com/channels/@me/1401775061706346536",
