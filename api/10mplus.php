@@ -5,6 +5,12 @@ header('Content-Type: application/json');
 date_default_timezone_set('UTC');
 
 // Configuration for a single channel
+
+$discordtoken = getenv('DISCORD_TOKEN') ?: '';
+if (empty($discordtoken)) {
+        return ['error' => true, 'httpCode' => 500, 'message' => 'discord token not configured'];
+}
+
 $channel = [
     'url' => 'https://discord.com/api/v9/channels/1401775181025775738/messages?limit=1',
     'type' => 'basic'
@@ -12,7 +18,7 @@ $channel = [
 
 // Common headers
 $headers = [
-    "Authorization: MTM0OTk4Njk1NzAyMjk5MDM1Mw.G63eML.GZTBdj2PJEgW6CmocmWTSqVW-YGE6h04uBI3Ls",
+    "Authorization": $discordtoken,
     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Accept: */*",
     "Referer: https://discord.com/channels/@me/1401775061706346536",
