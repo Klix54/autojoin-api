@@ -4,12 +4,12 @@ header('Content-Type: application/json');
 // Set timezone to UTC to align with Discord timestamps
 date_default_timezone_set('UTC');
 
+// Configuration for multiple channels and API
 $discordtoken = getenv('DISCORD_TOKEN') ?: '';
 if (empty($discordtoken)) {
-        return ['error' => true, 'httpCode' => 500, 'message' => 'discord token not configured'];
+    return ['error' => true, 'httpCode' => 500, 'message' => 'discord token not configured'];
 }
 
-// Configuration for multiple channels
 $channels = [
     [
         'url' => 'https://discord.com/api/v9/channels/1401775061706346536/messages?limit=1',
@@ -114,7 +114,7 @@ function processDiscordChannel($url, $headers, $threshold = null, $whitelistedKe
     ];
 }
 
-// Process all channels, return the first valid result
+// Process all channels and return the first valid result
 foreach ($channels as $channel) {
     $result = processDiscordChannel($channel['url'], $discordHeaders, $threshold, $whitelistedKeyword);
 
