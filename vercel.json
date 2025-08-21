@@ -1,0 +1,14 @@
+{
+  "functions": {
+    "api/1m10m.php": {
+      "runtime": "vercel-php@0.7.4"
+    },
+        "api/10mplus.php": {
+      "runtime": "vercel-php@0.7.4"
+    }
+  },
+  "routes": [
+    { "src": "/api/1m10m",  "dest": "/api/1m10m.php" },
+    { "src": "/api/1m10m",  "dest": "/api/10mplus.php" }
+  ]
+}
