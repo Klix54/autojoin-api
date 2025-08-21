@@ -4,7 +4,8 @@ header('Content-Type: application/json');
 // Set timezone to UTC to align with Discord timestamps
 date_default_timezone_set('UTC');
 
-// Configuration for multiple channels and API
+// Configuration for multiple channels
+
 $discordtoken = getenv('DISCORD_TOKEN') ?: '';
 if (empty($discordtoken)) {
     return ['error' => true, 'httpCode' => 500, 'message' => 'discord token not configured'];
@@ -21,9 +22,9 @@ $channels = [
     ]
 ];
 
-// Common headers for Discord API
-$discordHeaders = [
-    "Authorization": $discordtoken, // Add your Discord token here
+// Common headers
+$headers = [
+    "Authorization": $discordtoken,
     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Accept: */*",
     "Referer: https://discord.com/channels/@me/1401775061706346536",
@@ -38,8 +39,8 @@ if ($morethan !== null) {
 }
 $whitelistedKeyword = isset($_GET['whitelisted']) && trim($_GET['whitelisted']) !== '' ? strtolower(trim($_GET['whitelisted'])) : null;
 
-// Function to fetch and process a message from a Discord channel
-function processDiscordChannel($url, $headers, $threshold = null, $whitelistedKeyword = null) {
+// Function to fetch and process a message from a channel
+function processChannel($url, $headers, $type, $threshold = null, $whitelistedKeyword = null) {
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -83,6 +84,7 @@ function processDiscordChannel($url, $headers, $threshold = null, $whitelistedKe
             $moneyPerSec = trim(str_replace('**', '', $field['value']));
         }
         if (stripos($field['name'], 'Join Script') !== false) {
+            // Remove any additional backticks
             $joinScript = str_replace('```', '', $field['value']);
             $joinScript = trim($joinScript);
         }
@@ -116,7 +118,7 @@ function processDiscordChannel($url, $headers, $threshold = null, $whitelistedKe
 
 // Process all channels and return the first valid result
 foreach ($channels as $channel) {
-    $result = processDiscordChannel($channel['url'], $discordHeaders, $threshold, $whitelistedKeyword);
+    $result = processChannel($channel['url'], $headers, $channel['type'], $threshold, $whitelistedKeyword);
 
     // If no error, return the first valid result
     if (!isset($result['error'])) {
