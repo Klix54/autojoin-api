@@ -1,136 +1,180 @@
 <?php
 header('Content-Type: application/json');
 
-// Set timezone to UTC to align with Discord timestamps
+// Use UTC to compare against Discord timestamps
 date_default_timezone_set('UTC');
 
-// Configuration for multiple channels
-
+// --- Config ---
 $discordtoken = getenv('DISCORD_TOKEN') ?: '';
 if (empty($discordtoken)) {
-    return ['error' => true, 'httpCode' => 500, 'message' => 'discord token not configured'];
+    echo json_encode(['error' => true, 'httpCode' => 500, 'message' => 'DISCORD_TOKEN env var not configured']);
+    exit;
 }
 
 $channels = [
-    [
-        'url' => 'https://discord.com/api/v9/channels/1401775061706346536/messages?limit=1',
-        'type' => 'basic'
-    ],
-    [
-        'url' => 'https://discord.com/api/v9/channels/1401775125765947442/messages?limit=1',
-        'type' => 'basic'
-    ]
+    'https://discord.com/api/v9/channels/1401775061706346536/messages?limit=1',
+    'https://discord.com/api/v9/channels/1401775125765947442/messages?limit=1',
 ];
 
-// Common headers
-$headers = [
-    "Authorization": $discordtoken,
-    "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
-    "Accept: */*",
-    "Referer: https://discord.com/channels/@me/1401775061706346536",
-];
-
-// Parse query parameters
+// --- Parse query params ---
 $morethan = isset($_GET['morethan']) && trim($_GET['morethan']) !== '' ? trim($_GET['morethan']) : null;
 $threshold = null;
 if ($morethan !== null) {
-    $morethan = str_replace([',', 'm', 'M', 'k', 'K'], ['', '000000', '000000', '000', '000'], $morethan);
-    $threshold = floatval(preg_replace('/[^0-9.]/', '', $morethan));
+    // normalize like "1.2M", "350k", "900,000" → plain number
+    $norm = str_replace([',', 'm', 'M', 'k', 'K'], ['', '000000', '000000', '000', '000'], $morethan);
+    $threshold = floatval(preg_replace('/[^0-9.]/', '', $norm));
 }
+
 $whitelistedKeyword = isset($_GET['whitelisted']) && trim($_GET['whitelisted']) !== '' ? strtolower(trim($_GET['whitelisted'])) : null;
 
-// Function to fetch and process a message from a channel
-function processChannel($url, $headers, $type, $threshold = null, $whitelistedKeyword = null) {
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+// --- Helpers ---
+function http_get_json($url, $authToken) {
+    $ch = curl_init($url);
 
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    // Proper header format: "Header: value"
+    $headers = [
+        'Authorization: ' . $authToken,   // NOTE: For bot tokens use "Bot <token>"
+        'Accept: application/json',
+    ];
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+        CURLOPT_TIMEOUT        => 10,
+    ]);
+
+    $body = curl_exec($ch);
+    $err  = curl_error($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($httpCode != 200) {
-        return ["error" => "Failed to fetch brainrots, HTTP code: $httpCode"];
+    if ($err) {
+        return [null, 0, 'cURL error: ' . $err];
+    }
+    if ($code >= 500) {
+        return [null, $code, 'Discord server error: ' . $code];
+    }
+    if ($code == 429) {
+        return [null, $code, 'Rate limited by Discord (HTTP 429).'];
+    }
+    if ($code != 200) {
+        return [null, $code, 'HTTP error: ' . $code];
     }
 
-    $messages = json_decode($response, true);
-    if (empty($messages)) {
-        return ["error" => "No active brainrots (empty message response)."];
+    $json = json_decode($body, true);
+    if (!is_array($json)) {
+        return [null, $code, 'Invalid JSON from Discord'];
+    }
+    return [$json, $code, null];
+}
+
+function parse_message($message, $threshold, $whitelistedKeyword) {
+    if (!isset($message['timestamp'])) {
+        return ['error' => 'Missing timestamp'];
     }
 
-    $message = $messages[0];
     $messageTime = strtotime($message['timestamp']);
-    $currentTime = time();
-    $timeDiff = $currentTime - $messageTime;
+    $now = time();
+    $diff = $now - $messageTime;
 
-    // Allow up to 3 seconds
-    if ($timeDiff < 1 || $timeDiff > 3) {
-        return ["error" => "No active brainrots (timestamp outside 1-3s window: $timeDiff seconds)."];
+    // allow 0–5 seconds old to be safe (Discord latency + PHP execution time)
+    if ($diff < 0 || $diff > 3) {
+        return ['error' => "No active brainrots (timestamp outside 0–5s window: {$diff}s)."];
     }
 
-    $embed = $message['embeds'][0] ?? [];
-    $fields = $embed['fields'] ?? [];
+    $embeds = $message['embeds'] ?? [];
+    if (!$embeds || !isset($embeds[0]) || !is_array($embeds[0])) {
+        return ['error' => 'No embeds found.'];
+    }
+
+    $fields = $embeds[0]['fields'] ?? [];
+    if (!$fields || !is_array($fields)) {
+        return ['error' => 'No fields in embed.'];
+    }
+
     $brainrotName = '';
-    $moneyPerSec = '';
-    $joinScript = '';
+    $moneyPerSec  = '';
+    $joinScript   = '';
 
-    // Parse fields for data
     foreach ($fields as $field) {
-        if (stripos($field['name'], 'Name') !== false) {
-            $brainrotName = trim($field['value']);
-        }
-        if (stripos($field['name'], 'Money per sec') !== false) {
-            $moneyPerSec = trim(str_replace('**', '', $field['value']));
-        }
-        if (stripos($field['name'], 'Join Script') !== false) {
-            // Remove any additional backticks
-            $joinScript = str_replace('```', '', $field['value']);
-            $joinScript = trim($joinScript);
+        $fname = $field['name'] ?? '';
+        $fval  = $field['value'] ?? '';
+
+        if ($fname === '' || $fval === '') continue;
+
+        if (stripos($fname, 'Name') !== false) {
+            $brainrotName = trim($fval);
+        } elseif (stripos($fname, 'Money per sec') !== false) {
+            $moneyPerSec = trim(str_replace('**', '', $fval));
+        } elseif (stripos($fname, 'Join Script') !== false) {
+            // remove markdown code fences/backticks
+            $joinScript = trim(str_replace('```', '', $fval));
+            // also un-inline triple backticks variants
+            $joinScript = trim(preg_replace('/^`+|`+$/', '', $joinScript));
         }
     }
 
-    // Apply whitelisted filter
     if ($whitelistedKeyword !== null && stripos(strtolower($brainrotName), $whitelistedKeyword) === false) {
-        return ["error" => "No active brainrots (brainrot_name '$brainrotName' does not match whitelisted '$whitelistedKeyword')."];
+        return ['error' => "No active brainrots (brainrot_name '$brainrotName' does not match whitelisted '$whitelistedKeyword')."];
     }
 
-    // Apply money threshold filter
     if ($threshold !== null) {
+        // normalize "$1.2M/s", "$350K/s", "900,000/s" → float number
         $moneyValue = floatval(preg_replace('/[^0-9.]/', '', str_replace(['$', 'M', 'K', ','], ['', '000000', '000', ''], $moneyPerSec)));
-        if ($moneyValue <= $threshold) {
-            return ["error" => "No active brainrots (money_per_sec $moneyValue <= threshold $threshold)."];
+        if (!is_finite($moneyValue) || $moneyValue <= $threshold) {
+            return ['error' => "No active brainrots (money_per_sec {$moneyValue} <= threshold {$threshold})."];
         }
     }
 
-    // Ensure required fields are present
-    if (!$brainrotName || !$moneyPerSec || !$joinScript) {
-        return ["error" => "No active brainrots (missing brainrot_name, money_per_sec, or join_script)."];
+    if ($brainrotName === '' || $moneyPerSec === '' || $joinScript === '') {
+        return ['error' => 'No active brainrots (missing brainrot_name, money_per_sec, or join_script).'];
     }
 
     return [
-        "brainrot_name" => $brainrotName,
-        "money_per_sec" => $moneyPerSec,
-        "join_script" => $joinScript,
-        "message_time" => $messageTime
+        'ok'            => true,
+        'brainrot_name' => $brainrotName,
+        'money_per_sec' => $moneyPerSec,
+        'join_script'   => $joinScript,
+        'message_time'  => $messageTime,
     ];
 }
 
-// Process all channels and return the first valid result
-foreach ($channels as $channel) {
-    $result = processChannel($channel['url'], $headers, $channel['type'], $threshold, $whitelistedKeyword);
-
-    // If no error, return the first valid result
-    if (!isset($result['error'])) {
-        echo json_encode([
-            "brainrot_name" => $result['brainrot_name'],
-            "money_per_sec" => $result['money_per_sec'],
-            "join_script" => $result['join_script']
-        ]);
-        exit;
+// --- Main: find the first channel with a valid, fresh message ---
+$lastError = 'Unknown error';
+foreach ($channels as $url) {
+    [$json, $code, $err] = http_get_json($url, $discordtoken);
+    if ($err) {
+        $lastError = $err;
+        continue;
     }
+
+    if (empty($json) || !is_array($json)) {
+        $lastError = 'Empty message response';
+        continue;
+    }
+
+    $message = $json[0] ?? null;
+    if (!$message || !is_array($message)) {
+        $lastError = 'No message object';
+        continue;
+    }
+
+    $parsed = parse_message($message, $threshold, $whitelistedKeyword);
+
+    if (!isset($parsed['ok'])) {
+        $lastError = $parsed['error'] ?? 'Parse error';
+        continue;
+    }
+
+    echo json_encode([
+        'brainrot_name' => $parsed['brainrot_name'],
+        'money_per_sec' => $parsed['money_per_sec'],
+        'join_script'   => $parsed['join_script'],
+    ]);
+    exit;
 }
 
-// If no valid results from any channel, return the last error
-echo json_encode(["error" => $result['error']]);
-?>
+// If no valid results
+echo json_encode(['error' => $lastError]);
+exit;
