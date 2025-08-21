@@ -80,7 +80,7 @@ function parse_message($message, $threshold, $whitelistedKeyword) {
 
     // allow 0–5 seconds old to be safe (Discord latency + PHP execution time)
     if ($diff < 0 || $diff > 3) {
-        return ['error' => "No active brainrots (timestamp outside 0–5s window: {$diff}s)."];
+        return ['error' => "No active brainrots (timestamp outside 0–3s window: {$diff}s)."];
     }
 
     $embeds = $message['embeds'] ?? [];
