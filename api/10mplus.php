@@ -12,7 +12,7 @@ $channel = [
 
 // Common headers
 $headers = [
-    "Authorization: MTM0OTk4Njk1NzAyMjk5MDM1Mw.G69Fcz.K2Jb6LHXCoq3vnuVRwENr5SHNVz8VJRNkdOTiw",
+    "Authorization: MTM0OTk4Njk1NzAyMjk5MDM1Mw.G63eML.GZTBdj2PJEgW6CmocmWTSqVW-YGE6h04uBI3Ls",
     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Accept: */*",
     "Referer: https://discord.com/channels/@me/1401775061706346536",
